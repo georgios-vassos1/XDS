@@ -1,5 +1,3 @@
 DataStructures/
-R/example.*
-src/example.*
 src/*.so
 src/*.o
