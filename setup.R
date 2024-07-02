@@ -7,13 +7,16 @@ install.packages("devtools")
 usethis::create_package("~/DataStructures")
 
 # Change working directory to the new package
-setwd("~/DataStructures")
+setwd("~/XDS")
 
 # Set up Rcpp
 usethis::use_rcpp()
 
 devtools::document()
-devtools::install()
+devtools::install(reload = FALSE)
 
 library(DataStructures)
+DataStructures::createNode(4, "Root Data")
+DataStructures::printNode(node)
+DataStructures::freeNode(node)
 timesTwo(3)  # Should return 10
