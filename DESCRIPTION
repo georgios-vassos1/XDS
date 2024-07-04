@@ -14,5 +14,5 @@ LinkingTo:
     Rcpp
 Imports: 
     Rcpp
-RcppModules: PriorityQueueModule
+RcppModules: QueueElementModule
 SystemRequirements: C++17

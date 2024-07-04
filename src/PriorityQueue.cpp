@@ -51,3 +51,12 @@ Rcpp::XPtr<QueueElement> createQueueElement(float priority, Rcpp::RObject additi
 Rcpp::List getQueueElementInfo(Rcpp::XPtr<QueueElement> x) {
   return x->getInfo();
 }
+
+// Expose the QueueElement class and its methods to R using Rcpp modules
+RCPP_MODULE(QueueElementModule) {
+  Rcpp::class_<QueueElement>("QueueElement")
+    .constructor<float, Rcpp::RObject>()
+    .method("getPriority", &QueueElement::getPriority)
+    .method("getAdditionalInfo", &QueueElement::getAdditionalInfo)
+    .method("getInfo", &QueueElement::getInfo);
+}

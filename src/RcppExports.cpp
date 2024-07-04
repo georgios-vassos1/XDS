@@ -34,9 +34,12 @@ BEGIN_RCPP
 END_RCPP
 }
 
+RcppExport SEXP _rcpp_module_boot_QueueElementModule();
+
 static const R_CallMethodDef CallEntries[] = {
     {"_XDS_createQueueElement", (DL_FUNC) &_XDS_createQueueElement, 2},
     {"_XDS_getQueueElementInfo", (DL_FUNC) &_XDS_getQueueElementInfo, 1},
+    {"_rcpp_module_boot_QueueElementModule", (DL_FUNC) &_rcpp_module_boot_QueueElementModule, 0},
     {NULL, NULL, 0}
 };
 
