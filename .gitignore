@@ -2,3 +2,4 @@ DataStructures/
 src/*.so
 src/*.o
 .Rhistory
+setup.R
