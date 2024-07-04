@@ -14,5 +14,4 @@ LinkingTo:
     Rcpp
 Imports: 
     Rcpp
-RcppModules: QueueElementModule
 SystemRequirements: C++17

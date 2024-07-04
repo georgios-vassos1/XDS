@@ -1,6 +1,3 @@
 #' @useDynLib XDS, .registration=TRUE
-#' @importFrom Rcpp sourceCpp
+#' @importFrom Rcpp evalCpp
 NULL
-
-#' @export
-Rcpp::loadModule("QueueElementModule", TRUE)
