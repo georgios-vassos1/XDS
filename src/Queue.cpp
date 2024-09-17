@@ -48,12 +48,13 @@ class QueueWrapper {
       return q.size();
     }
 
-    // Method to print the contents of the queue
     void printQueue() const {
       std::queue<SEXP> temp = q;  // Make a copy of the queue to avoid modifying the original queue
       Rcpp::Rcout << "Queue contents: ";
       while (!temp.empty()) {
-        Rcpp::Rcout << temp.front() << " ";  // Print the front element
+        // Convert the SEXP to an appropriate type for printing, such as a string
+        std::string val = Rcpp::as<std::string>(temp.front());
+        Rcpp::Rcout << val << " ";  // Print the content
         temp.pop();  // Remove the front element from the copy
       }
       Rcpp::Rcout << std::endl;  // End with a newline
@@ -63,12 +64,12 @@ class QueueWrapper {
     Rcpp::List toRVector() const {
       std::queue<SEXP> temp = q;  // Make a copy of the queue
       Rcpp::List result;
-      
+
       while (!temp.empty()) {
         result.push_back(temp.front());  // Add front element to result list
         temp.pop();
       }
-      
+
       return result;
     }
 
@@ -80,7 +81,7 @@ class QueueWrapper {
     // Method to reverse the contents of the queue
     void reverse() {
       std::stack<SEXP> tempStack;  // Use a stack to reverse the queue
-      
+
       // Move elements from queue to stack (which reverses the order)
       while (!q.empty()) {
         tempStack.push(q.front());
