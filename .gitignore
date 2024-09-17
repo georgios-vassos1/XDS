@@ -2,4 +2,5 @@ DataStructures/
 src/*.so
 src/*.o
 .Rhistory
+.DS_Store
 setup.R

@@ -12,15 +12,26 @@ Rcpp::Rostream<false>& Rcpp::Rcerr = Rcpp::Rcpp_cerr_get();
 #endif
 
 // createQueueElement
-Rcpp::XPtr<Rcpp::QueueElement> createQueueElement(float priority, Rcpp::RObject additionalInfo);
-RcppExport SEXP _XDS_createQueueElement(SEXP prioritySEXP, SEXP additionalInfoSEXP) {
+Rcpp::XPtr<Rcpp::QueueElement> createQueueElement(float priority, int eventType, Rcpp::RObject additionalInfo);
+RcppExport SEXP _XDS_createQueueElement(SEXP prioritySEXP, SEXP eventTypeSEXP, SEXP additionalInfoSEXP) {
 BEGIN_RCPP
     Rcpp::RObject rcpp_result_gen;
     Rcpp::RNGScope rcpp_rngScope_gen;
     Rcpp::traits::input_parameter< float >::type priority(prioritySEXP);
+    Rcpp::traits::input_parameter< int >::type eventType(eventTypeSEXP);
     Rcpp::traits::input_parameter< Rcpp::RObject >::type additionalInfo(additionalInfoSEXP);
-    rcpp_result_gen = Rcpp::wrap(createQueueElement(priority, additionalInfo));
+    rcpp_result_gen = Rcpp::wrap(createQueueElement(priority, eventType, additionalInfo));
     return rcpp_result_gen;
+END_RCPP
+}
+// releaseQueueElement
+void releaseQueueElement(Rcpp::XPtr<Rcpp::QueueElement> x);
+RcppExport SEXP _XDS_releaseQueueElement(SEXP xSEXP) {
+BEGIN_RCPP
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< Rcpp::XPtr<Rcpp::QueueElement> >::type x(xSEXP);
+    releaseQueueElement(x);
+    return R_NilValue;
 END_RCPP
 }
 // getQueueElementInfo
@@ -35,9 +46,15 @@ BEGIN_RCPP
 END_RCPP
 }
 
+RcppExport SEXP _rcpp_module_boot_PriorityQueueModule();
+RcppExport SEXP _rcpp_module_boot_QueueModule();
+
 static const R_CallMethodDef CallEntries[] = {
-    {"_XDS_createQueueElement", (DL_FUNC) &_XDS_createQueueElement, 2},
+    {"_XDS_createQueueElement", (DL_FUNC) &_XDS_createQueueElement, 3},
+    {"_XDS_releaseQueueElement", (DL_FUNC) &_XDS_releaseQueueElement, 1},
     {"_XDS_getQueueElementInfo", (DL_FUNC) &_XDS_getQueueElementInfo, 1},
+    {"_rcpp_module_boot_PriorityQueueModule", (DL_FUNC) &_rcpp_module_boot_PriorityQueueModule, 0},
+    {"_rcpp_module_boot_QueueModule", (DL_FUNC) &_rcpp_module_boot_QueueModule, 0},
     {NULL, NULL, 0}
 };
 

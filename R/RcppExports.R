@@ -3,8 +3,14 @@
 
 #' @useDynLib XDS
 #' @export
-createQueueElement <- function(priority, additionalInfo) {
-    .Call(`_XDS_createQueueElement`, priority, additionalInfo)
+createQueueElement <- function(priority, eventType, additionalInfo) {
+    .Call(`_XDS_createQueueElement`, priority, eventType, additionalInfo)
+}
+
+#' @useDynLib XDS
+#' @export
+releaseQueueElement <- function(x) {
+    invisible(.Call(`_XDS_releaseQueueElement`, x))
 }
 
 #' @useDynLib XDS
