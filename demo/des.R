@@ -43,17 +43,86 @@ request_event <- function(env, ...) {
   XDS::createQueueElement(request_at, 1L, list(
     "sid"   = sid,
     "catid" = catid,
-    "reqid" = request_key,
-    "request_at" = request_at
+    "reqid" = request_key
     )) |>
     env$event_list$push()
   # Schedule the approval event
   approval_at <- env$sim_time + rexp(1L, 0.5)
   XDS::createQueueElement(approval_at, 2L, list(
-    "reqid" = request_key,
-    "approval_at" = approval_at
+    "reqid" = request_key
     )) |>
     env$event_list$push()
+}
+
+approval_event <- function(env, ...) {
+  item   <- XDS::getQueueElementInfo(env$event_list$pop())
+  reqkey <- item$additionalInfo$reqid
+  # Remove the request from the approval queue
+  # reqkey <- sim$approval_queue$dequeue()
+  # Add the request to the handling queue
+  # sim$handling_queue$enqueue(reqkey)
+  # Schedule the handling event
+  handling_at <- env$sim_time + rexp(1L, 0.2)
+  XDS::createQueueElement(handling_at, 3L, list(
+    "reqid" = reqkey
+  )) |>
+    env$event_list$push()
+}
+
+handling_event <- function(env, ...) {
+  item   <- XDS::getQueueElementInfo(env$event_list$pop())
+  reqkey <- item$additionalInfo$reqid
+  # Remove the request from the handling queue
+  # reqkey  <- sim$handling_queue$dequeue()
+  # Retrieve the request from the request table
+  reqhash <- digest(reqkey, algo = "sha256")
+  request <- env$request_table[[reqhash]]
+  # Process the request
+  # Policy 1: 
+  #   - order the items with an active eCat entry
+  #   - create RFQ event for the remaining items
+  # Policy 2: create an RFQ event for all items in the request
+
+  # Schedule the RFQ event
+  rfq_response_at <- env$sim_time + rexp(1L, 0.4)
+  XDS::createQueueElement(rfq_response_at, 5L, list(
+    "reqid" = reqkey,
+    "items" = c(),
+    "quantity" = c(),
+    "rfq_response_at" = rfq_response_at
+  )) |>
+    env$event_list$push()
+  # Schedule the handling event
+  order_at <- env$sim_time + 0.001
+  XDS::createQueueElement(order_at, 6L, list(
+    "reqid" = reqkey,
+    "items" = c(),
+    "unit_price" = c(),
+    "lead_time" = c(),
+    "order_at" = order_at
+  )) |>
+    env$event_list$push()
+}
+
+rfq_event <- function(env, ...) {
+  item   <- XDS::getQueueElementInfo(env$event_list$pop())
+  reqkey <- item$additionalInfo$reqid
+  items  <- item$additionalInfo$items
+  quant  <- item$additionalInfo$quantity
+  # Schedule the handling event
+  order_at <- env$sim_time + rexp(1L, 0.2)
+  XDS::createQueueElement(order_at, 6L, list(
+    "reqid" = reqkey,
+    "items" = c(),
+    "unit_price" = c(),
+    "lead_time" = c(),
+    "order_at" = order_at
+  )) |>
+    env$event_list$push()
+}
+
+order_event <- function(env, ...) {
+  NULL
 }
 
 initiate <- function(env, tau = 365L, ...) {
@@ -81,6 +150,7 @@ initiate <- function(env, tau = 365L, ...) {
 
     request_key <- paste(sample(c(0:9, letters, LETTERS), 32, replace = TRUE), collapse = "")
 
+    last_prd_at <- numeric(n * m * length(products))
     last_req_at <- numeric(n * m)
 
     request_at <- rexp(1L, 0.2)
@@ -106,7 +176,7 @@ timing <- function(env, ...) {
 sim <- new.env()
 sim$request_table  <- new.env(hash = TRUE)
 sim$approval_queue <- new(XDS::QueueWrapper)
-# sim$handling_queue <- new(XDS::QueueWrapper)
+sim$handling_queue <- new(XDS::QueueWrapper)
 # sim$request_table[[digest(sim$event_list$top()$additionalInfo$reqid, algo = "sha256")]]
 
 initiate(sim, tau = 365L)
@@ -116,9 +186,11 @@ while (1) {
   # Invoke the appropriate event routine
   j <- sim$next_event_type
   switch (j,
-          request_event(sim),
-          decision_point(sim, B, D, Y, bandit, betas=betas, Sigma=diag(10L,sim$n.y), rls.lambda=0.98),
-          supplier_evaluation(sim),
-          break,
+    request_event(sim),
+    approval_event(sim),
+    handling_event(sim),
+    break,
+    rfq_event(sim),
+    order_event(sim)
   )
 }
