@@ -5,21 +5,28 @@ devtools::build("~/XDS")
 devtools::document("~/XDS")
 devtools::install("~/XDS", reload = F)
 
-rPR <- function(env, ...) {
+request_event <- function(env, ...) {
   item  <- XDS::getQueueElementInfo(env$event_list$pop())
   sid   <- item$additionalInfo$sid
   catid <- item$additionalInfo$catid
 
-  propensity <- lapply(env$products, function(article) list(id = article$id, score = env$products[[article$id]]$beta * env$products[[article$id]]$q0))
+  # Time since last request relative to (i,j)
+  i <- env$shipdx[[sid]]
+  j <- env$catdx[[catid]]
+  tij <- env$last_req_at[(i - 1L) * env$m + j]
+  wij <- env$sim_time - tij
 
+  # Calculate the propensity of each product
+  propensity <- lapply(env$products, function(article) list(id = article$id, score = env$products[[article$id]]$beta * wij / env$products[[article$id]]$q0))
+  # Select the products to request
   idx <- lapply(propensity, function(prop) {
     # Bernoulli trial for each product based on its propensity
     rbinom(1, 1, prop$score)
   }) |> unname() |> as.logical() |> which()
-
+  # Generate the request
   request <- env$products[idx]
   request <- lapply(request, function(item) {
-    item$products <- min(env$products[[item$id]]$beta * env$sim_time, env$products[[item$id]]$q0) |> round()
+    item$products <- min(env$products[[item$id]]$beta * wij, env$products[[item$id]]$q0) |> round()
     return(item)
   })
   # Generate a request key and hash it
@@ -29,10 +36,10 @@ rPR <- function(env, ...) {
   env$request_table[[request_hash]] <- request
   # Push to approval queue or schedule handling by adding the composite waiting time of approval
   sim$approval_queue$enqueue(request_key)
-
-  # Update event list
+  # Update event list and data containers
+  env$last_req_at[(i - 1L) * env$m + j] <- env$sim_time
   # Schedule the next (ship, category)-specific request event
-  request_at <- env$sim_time + rexp(1L, 0.2)
+  request_at <- env$sim_time + rexp(1L, 0.1)
   XDS::createQueueElement(request_at, 1L, list(
     "sid"   = sid,
     "catid" = catid,
@@ -41,7 +48,7 @@ rPR <- function(env, ...) {
     )) |>
     env$event_list$push()
   # Schedule the approval event
-  approval_at <- env$sim_time + rexp(1L, 0.2)
+  approval_at <- env$sim_time + rexp(1L, 0.5)
   XDS::createQueueElement(approval_at, 2L, list(
     "reqid" = request_key,
     "approval_at" = approval_at
@@ -51,17 +58,22 @@ rPR <- function(env, ...) {
 
 initiate <- function(env, tau = 365L, ...) {
   args  <- list(...)
-  env$n <- args[["n_ships"]]
-  env$m <- args[["n_categories"]]
+  env$n <- ifelse(is.null(args[["n_ships"]]), 1L, args[["n_ships"]])
+  env$m <- ifelse(is.null(args[["n_categories"]]), 1L, args[["n_categories"]])
   env$tau <- tau
+
+  env$ships  <- c("s016")
+  env$cats   <- c("c86k")
+  env$shipdx <- as.list(setNames(seq_along(env$ships), env$ships))
+  env$catdx  <- as.list(setNames(seq_along(env$cats), env$cats))
 
   with(env, {
     products <- list(
-      list(id = 1L, name = "Diesel Fuel", "q0" = 10L, "beta" = 2.0),
-      list(id = 2L, name = "Engine Oil",  "q0" = 10L, "beta" = 2.0),
-      list(id = 3L, name = "Lubricant",   "q0" = 10L, "beta" = 1.0),
-      list(id = 4L, name = "Fresh Water", "q0" = 10L, "beta" = 4.0),
-      list(id = 5L, name = "Cleaning Supplies", "q0" = 10L, "beta" = 1.0)
+      list(id = 1L, name = "Diesel Fuel", "q0" = 10L, "beta" = 0.1),
+      list(id = 2L, name = "Engine Oil",  "q0" = 10L, "beta" = 0.1),
+      list(id = 3L, name = "Lubricant",   "q0" = 10L, "beta" = 0.1),
+      list(id = 4L, name = "Fresh Water", "q0" = 10L, "beta" = 1.0),
+      list(id = 5L, name = "Cleaning Supplies", "q0" = 10L, "beta" = 0.5)
     )
 
     sim_time   <- 0.0
@@ -69,14 +81,17 @@ initiate <- function(env, tau = 365L, ...) {
 
     request_key <- paste(sample(c(0:9, letters, LETTERS), 32, replace = TRUE), collapse = "")
 
+    last_req_at <- numeric(n * m)
+
     request_at <- rexp(1L, 0.2)
     XDS::createQueueElement(request_at, 1L, list(
-      "sid"   = "s016", 
-      "catid" = "c86k", 
+      "sid"   = ships[1L], 
+      "catid" = cats[1L], 
       "reqid" = request_key, 
       "request_at" = request_at
       )) |>
       event_list$push()
+
     XDS::createQueueElement(tau, 4L, list("message" = "Termination")) |>
       event_list$push()
   })
@@ -89,7 +104,7 @@ timing <- function(env, ...) {
 }
 
 sim <- new.env()
-sim$request_table <- new.env(hash = TRUE)
+sim$request_table  <- new.env(hash = TRUE)
 sim$approval_queue <- new(XDS::QueueWrapper)
 # sim$handling_queue <- new(XDS::QueueWrapper)
 # sim$request_table[[digest(sim$event_list$top()$additionalInfo$reqid, algo = "sha256")]]
@@ -101,7 +116,7 @@ while (1) {
   # Invoke the appropriate event routine
   j <- sim$next_event_type
   switch (j,
-          rPR(sim),
+          request_event(sim),
           decision_point(sim, B, D, Y, bandit, betas=betas, Sigma=diag(10L,sim$n.y), rls.lambda=0.98),
           supplier_evaluation(sim),
           break,
