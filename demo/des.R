@@ -177,30 +177,6 @@ handling_event <- function(env, ...) {
     env$event_list$push()
 }
 
-# Function to calculate minimal cost allocation and return a data.table
-optimal_allocation <- function(dt, extra_cost) {
-  # Step 1: Find the minimum rate for each product (mixed supplier allocation)
-  min_rates  <- dt[, .SD[which.min(rate)], by = prod_idx]
-  mixed_cost <- sum(min_rates$rate) + (data.table::uniqueN(min_rates$supp_idx) - 1L) * extra_cost
-
-  # Step 2: Calculate the cost of assigning the entire order to each supplier
-  single_costs <- dt[, .(total_cost = sum(rate)), by = supp_idx]
-
-  # Step 3: Find the supplier with the minimum total cost (single supplier assignment)
-  single_supplier <- single_costs[which.min(total_cost)]
-
-  # Step 4: Compare the costs and return the optimal allocation
-  if (single_supplier$total_cost < mixed_cost) {
-    # Assign all products to the best single supplier
-    optimal_allocation <- dt[supp_idx == single_supplier$supp_idx]
-  } else {
-    # Use the mixed supplier allocation
-    optimal_allocation <- min_rates
-  }
-
-  optimal_allocation
-}
-
 # RFQ event
 rfq_event <- function(env, ...) {
   print("RFQ event")
@@ -238,6 +214,30 @@ rfq_event <- function(env, ...) {
     env$event_list$push()
 }
 
+# Function to calculate minimal cost allocation and return a data.table
+optimal_allocation <- function(dt, extra_cost) {
+  # Step 1: Find the minimum rate for each product (mixed supplier allocation)
+  min_rates  <- dt[, .SD[which.min(rate)], by = prod_idx]
+  mixed_cost <- sum(min_rates$rate) + (data.table::uniqueN(min_rates$supp_idx) - 1L) * extra_cost
+
+  # Step 2: Calculate the cost of assigning the entire order to each supplier
+  single_costs <- dt[, .(total_cost = sum(rate)), by = supp_idx]
+
+  # Step 3: Find the supplier with the minimum total cost (single supplier assignment)
+  single_supplier <- single_costs[which.min(total_cost)]
+
+  # Step 4: Compare the costs and return the optimal allocation
+  if (single_supplier$total_cost < mixed_cost) {
+    # Assign all products to the best single supplier
+    optimal_allocation <- dt[supp_idx == single_supplier$supp_idx]
+  } else {
+    # Use the mixed supplier allocation
+    optimal_allocation <- min_rates
+  }
+
+  optimal_allocation
+}
+
 # Order event
 order_event <- function(env, extra_cost, ...) {
   print("Order event")
@@ -252,21 +252,22 @@ order_event <- function(env, extra_cost, ...) {
   # volume.contract.t <- volume.spot.t <- 0L
   # if (!(is.null(item$additionalInfo$rfqid))) {
   #   data.table::setnames(reqxdt, old = "spot_rate", new = "rate")
-  #   podt <- optimal_allocation(reqxdt, extra_cost)
+  #   podt.opt <- optimal_allocation(reqxdt, extra_cost)
   #   # Volume allocation
-  #   K <- podt$supp_idx |> unique()
-  #   volume.contract.t <- podt[, .(v = sum(q)), by = .(supp_idx)]$v
+  #   K <- podt.opt$supp_idx |> unique()
+  #   volume.contract.t <- podt.opt[, .(v = sum(q)), by = .(supp_idx)]$v
   # } else {
   #   data.table::setnames(reqxdt, old = "strategic_rate", new = "rate")
-  #   podt <- optimal_allocation(reqxdt, extra_cost)
+  #   podt.opt <- optimal_allocation(reqxdt, extra_cost)
   #   # Volume allocation
-  #   K <- podt$supp_idx |> unique()
-  #   volume.spot.t <- podt[, .(v = sum(q)), by = .(supp_idx)]$v
+  #   K <- podt.opt$supp_idx |> unique()
+  #   volume.spot.t <- podt.opt[, .(v = sum(q)), by = .(supp_idx)]$v
   # }
   # env$volume[(K - 1L) * env$tau + floor(tdx)] <- volume.contract.t + volume.spot.t
   # env$volume_commitment[K] <- env$volume_commitment[K] - volume.contract.t
   ## Policy 2
   #  Comprehensive table
+  # reqxdt$strategic_rate <- reqxdt$strategic_rate * reqxdt$valid + 1e6 * (1L - reqxdt$valid)
   data.table::melt(
     reqxdt, 
     id.vars       = c(
@@ -285,11 +286,16 @@ order_event <- function(env, extra_cost, ...) {
       "spot_rate"
     ), 
     variable.name = "rate_type",
-    value.name    = "rate") |>
-    optimal_allocation(extra_cost) -> podt
+    value.name    = "rate")[
+      (rate_type == "spot_rate") | ((rate_type == "strategic_rate") & (valid == TRUE))
+    ] -> podt
+  # Optimal allocation
+  podt.opt <- optimal_allocation(podt, extra_cost)
+  # # Random allocation
+  # podt.rnd <- podt[, .SD[sample(.N, 1)], by = idx]
   # Volume allocation
   data.table::dcast(
-      podt[, .(v = sum(q)), by = .(supp_idx, rate_type)], 
+    podt.opt[, .(v = sum(q)), by = .(supp_idx, rate_type)], 
       supp_idx ~ rate_type, 
       value.var = "v", 
       fill = 0L
@@ -305,15 +311,17 @@ order_event <- function(env, extra_cost, ...) {
   env$volume[(K - 1L) * env$tau + floor(tdx)] <- strategic_volumes + spot_volumes
   # Update cost metric
   env$cost[floor(tdx)] <- env$cost[floor(tdx)] + 
-    podt[, .(cost = sum(q * rate))]$cost + extra_cost * (data.table::uniqueN(podt$supp_idx) - 1L)
+    podt.opt[, .(cost = sum(q * rate))]$cost + extra_cost * (data.table::uniqueN(podt.opt$supp_idx) - 1L)
+  # env$cost.rnd[floor(tdx)] <- env$cost.rnd[floor(tdx)] + 
+  #   podt.rnd[, .(cost = sum(q * rate))]$cost + extra_cost * (data.table::uniqueN(podt.rnd$supp_idx) - 1L)
   ## Store the request in the order table
   env$order_table[[po_hash]] <- list(
     "poid"      = po_key,
     "reqid"     = reqkey,
     "rfqid"     = item$additionalInfo$rfqid,
-    "prod_idx"  = podt$idx,
-    "supp_idx"  = podt$supp_idx,
-    "rate"      = podt$rate,
+    "prod_idx"  = podt.opt$idx,
+    "supp_idx"  = podt.opt$supp_idx,
+    "rate"      = podt.opt$rate,
     "order_at"  = item$additionalInfo$order_at
   )
 }
@@ -380,7 +388,7 @@ initiate <- function(env, tau = 365L, ...) {
             spot_supplier_baseline[j] + 
               spot_product_seasonality[(i - 1L) * tau + seq(tau)] + 
               spot_variation[((i - 1L) * n_suppliers + (j - 1L)) * tau + seq(tau)],
-          ))[2L]
+          ))[3L]
       }
     }
     valid_to <- sample(50L:365L, n_products * n_suppliers, replace = TRUE)
@@ -389,6 +397,47 @@ initiate <- function(env, tau = 365L, ...) {
     sim_time   <- 0.0
     event_list <- new(XDS::PriorityQueueWrapper)
 
+    # Auxiliary data containers
+    last_prd_at <- numeric(n * m * n_products)
+    last_req_at <- numeric(n * m)
+    requests_count <- 0L
+    handling_count <- 0L
+    rfq_count <- 0L
+    ordering_count <- 0L
+    requests_at   <- numeric(tau)
+    handling_at   <- numeric(tau)
+    rfq_at        <- numeric(tau)
+    ordering_at   <- numeric(tau)
+    product_count <- numeric(n_products)
+    demand_at     <- numeric(n_products * tau)
+    inventory     <- numeric(n_products * tau)
+    cost          <- numeric(tau)
+    # cost.rnd      <- numeric(tau)
+    # Generate the first request for each (i,j) pair
+    request_key <- paste(sample(c(0:9, letters, LETTERS), 32, replace = TRUE), collapse = "")
+    request_at  <- rexp(1L, 0.2)
+    # Schedule the first request event
+    XDS::createQueueElement(request_at, 1L, list(
+      "sid"   = ships[1L], 
+      "catid" = cats[1L], 
+      "reqid" = request_key, 
+      "request_at" = request_at
+      )) |>
+      event_list$push()
+    # Schedule the termination event
+    XDS::createQueueElement(tau, 4L, list("message" = "Termination")) |>
+      event_list$push()
+  })
+}
+
+reset.env <- function(env) {
+  with(env, {
+    # Volume commitment
+    volume_commitment <- c(100.0, 100.0, 40.0, 40.0)
+    volume <- numeric(n_suppliers * tau)
+    # Initialize simulation clock
+    sim_time   <- 0.0
+    event_list <- new(XDS::PriorityQueueWrapper)
     # Auxiliary data containers
     last_prd_at <- numeric(n * m * n_products)
     last_req_at <- numeric(n * m)
@@ -413,7 +462,7 @@ initiate <- function(env, tau = 365L, ...) {
       "catid" = cats[1L], 
       "reqid" = request_key, 
       "request_at" = request_at
-      )) |>
+    )) |>
       event_list$push()
     # Schedule the termination event
     XDS::createQueueElement(tau, 4L, list("message" = "Termination")) |>
@@ -438,6 +487,7 @@ sim$order_table   <- new.env(hash = TRUE)
 # sim$request_table[[digest(sim$event_list$top()$additionalInfo$reqid, algo = "sha256")]]
 
 initiate(sim, tau = 365L)
+# reset.env(sim)
 while (1L) {
   # Determine the next event
   timing(sim)
@@ -452,6 +502,11 @@ while (1L) {
     order_event(sim, 10.0)
   )
 }
+total_volume <- matrix(sim$volume, ncol = sim$n_suppliers) |> apply(1L, sum)
+total_volume[total_volume == 0] <- 1L
+plot(cumsum(sim$cost), type = 's', ylim = c(0L, 6500L))
+lines(cumsum(sim$cost), type = 's', col = 2L)
+
 N.t <- rep(0L, sim$tau)
 N.t[round(sim$requests_at)] <- 1.0
 plot(seq(sim$tau), cumsum(N.t), type = "s")
@@ -474,12 +529,12 @@ metadt[, .(demand = sum(q)), by = .(prod_idx)]
 metadt[, .(volume = sum(q)), by = .(supp_idx)]
 apply(matrix(sim$volume, ncol = sim$n_suppliers), 2L, sum)
 
-sim$strategic_rates[3L * sim$n_suppliers + seq(sim$n_suppliers)]
+sim$strategic_rates[2L * sim$n_suppliers + seq(sim$n_suppliers)]
 spot_rates <- numeric(sim$n_products * sim$n_suppliers * sim$tau)
 for (i in seq(sim$n_products)) {
   for (j in seq(sim$n_suppliers)) {
     idx <- ((i - 1L) * sim$n_suppliers + (j - 1L)) * sim$tau + seq(sim$tau)
-    spot_rates[idx] <- sim$spot_supplier_baseline[k] + 
+    spot_rates[idx] <- sim$spot_supplier_baseline[j] + 
       sim$spot_product_seasonality[(i - 1L) * sim$tau + seq(sim$tau)] + 
       sim$spot_variation[idx]
   }
