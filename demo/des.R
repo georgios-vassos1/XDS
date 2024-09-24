@@ -139,42 +139,42 @@ handling_event <- function(env, ...) {
     )
   })), by = .(idx)]
   ## Process the request
-  ## Policy 1:
-  #  - order the items with an active eCat entry
-  #  - create RFQ event for the remaining items
-  if (any(!reqxdt$valid)) {
-    # Schedule the RFQ event
-    rfq_response_at <- env$sim_time + rexp(1L, 0.4)
-    env$rfq_count <- rfqdx <- env$rfq_count + 1L
-    env$rfq_at[rfqdx] <- rfq_response_at
-    XDS::createQueueElement(rfq_response_at, 5L, list(
-      "reqid"     = reqkey,
-      "reqinfodt" = reqxdt[valid == FALSE],
-      "rfq_response_at" = rfq_response_at
-    )) |>
-      env$event_list$push()
-  }
-  if (any(reqxdt$valid)) {
-    # Schedule the order event
-    order_at <- env$sim_time + rexp(1L, 10.0)
-    env$ordering_count <- odx <- env$ordering_count + 1L
-    env$ordering_at[odx] <- order_at
-    XDS::createQueueElement(order_at, 6L, list(
-      "reqid"     = reqkey,
-      "reqinfodt" = reqxdt[valid == TRUE],
-      "order_at"  = order_at
-    )) |>
-      env$event_list$push()
-  }
-  # ## Policy 2:
-  # #  - create RFQ event for all items
-  # rfq_response_at <- env$sim_time + rexp(1L, 0.4)
-  # XDS::createQueueElement(rfq_response_at, 5L, list(
-  #   "reqid"     = reqkey,
-  #   "reqinfodt" = reqxdt,
-  #   "rfq_response_at" = rfq_response_at
-  # )) |>
-  #   env$event_list$push()
+  # ## Policy 1:
+  # #  - order the items with an active eCat entry
+  # #  - create RFQ event for the remaining items
+  # if (any(!reqxdt$valid)) {
+  #   # Schedule the RFQ event
+  #   rfq_response_at <- env$sim_time + rexp(1L, 0.4)
+  #   env$rfq_count <- rfqdx <- env$rfq_count + 1L
+  #   env$rfq_at[rfqdx] <- rfq_response_at
+  #   XDS::createQueueElement(rfq_response_at, 5L, list(
+  #     "reqid"     = reqkey,
+  #     "reqinfodt" = reqxdt[valid == FALSE],
+  #     "rfq_response_at" = rfq_response_at
+  #   )) |>
+  #     env$event_list$push()
+  # }
+  # if (any(reqxdt$valid)) {
+  #   # Schedule the order event
+  #   order_at <- env$sim_time + rexp(1L, 10.0)
+  #   env$ordering_count <- odx <- env$ordering_count + 1L
+  #   env$ordering_at[odx] <- order_at
+  #   XDS::createQueueElement(order_at, 6L, list(
+  #     "reqid"     = reqkey,
+  #     "reqinfodt" = reqxdt[valid == TRUE],
+  #     "order_at"  = order_at
+  #   )) |>
+  #     env$event_list$push()
+  # }
+  ## Policy 2:
+  #  - create RFQ event for all items
+  rfq_response_at <- env$sim_time + rexp(1L, 0.4)
+  XDS::createQueueElement(rfq_response_at, 5L, list(
+    "reqid"     = reqkey,
+    "reqinfodt" = reqxdt,
+    "rfq_response_at" = rfq_response_at
+  )) |>
+    env$event_list$push()
 }
 
 # Function to calculate minimal cost allocation and return a data.table
@@ -248,61 +248,64 @@ order_event <- function(env, extra_cost, ...) {
   # Generate a request key and hash it
   po_key  <- paste(sample(c(0L:9L, letters, LETTERS), 32L, replace = TRUE), collapse = "")
   po_hash <- digest::digest(po_key, algo = "sha256")
-  ## Policy 1
-  volume.contract.t <- volume.spot.t <- 0L
-  if (!(is.null(item$additionalInfo$rfqid))) {
-    data.table::setnames(reqxdt, old = "spot_rate", new = "rate")
-    podt <- optimal_allocation(reqxdt, extra_cost)
-    # Volume allocation
-    K <- podt$supp_idx |> unique()
-    volume.contract.t <- podt[, .(v = sum(q)), by = .(supp_idx)]$v
-  } else {
-    data.table::setnames(reqxdt, old = "strategic_rate", new = "rate")
-    podt <- optimal_allocation(reqxdt, extra_cost)
-    # Volume allocation
-    K <- podt$supp_idx |> unique()
-    volume.spot.t <- podt[, .(v = sum(q)), by = .(supp_idx)]$v
-  }
-  env$volume[(K - 1L) * env$tau + floor(tdx)] <- volume.contract.t + volume.spot.t
-  env$volume_commitment[K] <- env$volume_commitment[K] - volume.contract.t
-  # ## Policy 2
-  # #  Comprehensive table
-  # data.table::melt(
-  #   reqxdt, 
-  #   id.vars       = c(
-  #     "idx", 
-  #     "supp_idx", 
-  #     "supp_id", 
-  #     "supp_name", 
-  #     "prod_idx", 
-  #     "prod_id", 
-  #     "prod_name", 
-  #     "q", 
-  #     "valid"
-  #   ),
-  #   measure.vars  = c(
-  #     "strategic_rate", 
-  #     "spot_rate"
-  #   ), 
-  #   variable.name = "rate_type",
-  #   value.name    = "rate") |>
-  #   optimal_allocation(extra_cost) -> podt
-  # # Volume allocation
-  # data.table::dcast(
-  #     podt[, .(v = sum(q)), by = .(supp_idx, rate_type)], 
-  #     supp_idx ~ rate_type, 
-  #     value.var = "v", 
-  #     fill = 0L
-  #   ) -> voldt
-  # # Get supplier indices
-  # K <- voldt$supp_idx
-  # # Check for missing columns
-  # strategic_volumes <- ifelse(is.null(voldt$strategic_rate), 0L, voldt$strategic_rate)
-  # spot_volumes      <- ifelse(is.null(voldt$spot_rate), 0L, voldt$spot_rate)
-  # # Update volume commitment
-  # env$volume_commitment[K] <- env$volume_commitment[K] - strategic_volumes
-  # # Update volume allocation
-  # env$volume[(K - 1L) * env$tau + floor(tdx)] <- strategic_volumes + spot_volumes
+  # ## Policy 1
+  # volume.contract.t <- volume.spot.t <- 0L
+  # if (!(is.null(item$additionalInfo$rfqid))) {
+  #   data.table::setnames(reqxdt, old = "spot_rate", new = "rate")
+  #   podt <- optimal_allocation(reqxdt, extra_cost)
+  #   # Volume allocation
+  #   K <- podt$supp_idx |> unique()
+  #   volume.contract.t <- podt[, .(v = sum(q)), by = .(supp_idx)]$v
+  # } else {
+  #   data.table::setnames(reqxdt, old = "strategic_rate", new = "rate")
+  #   podt <- optimal_allocation(reqxdt, extra_cost)
+  #   # Volume allocation
+  #   K <- podt$supp_idx |> unique()
+  #   volume.spot.t <- podt[, .(v = sum(q)), by = .(supp_idx)]$v
+  # }
+  # env$volume[(K - 1L) * env$tau + floor(tdx)] <- volume.contract.t + volume.spot.t
+  # env$volume_commitment[K] <- env$volume_commitment[K] - volume.contract.t
+  ## Policy 2
+  #  Comprehensive table
+  data.table::melt(
+    reqxdt, 
+    id.vars       = c(
+      "idx", 
+      "supp_idx", 
+      "supp_id", 
+      "supp_name", 
+      "prod_idx", 
+      "prod_id", 
+      "prod_name", 
+      "q", 
+      "valid"
+    ),
+    measure.vars  = c(
+      "strategic_rate", 
+      "spot_rate"
+    ), 
+    variable.name = "rate_type",
+    value.name    = "rate") |>
+    optimal_allocation(extra_cost) -> podt
+  # Volume allocation
+  data.table::dcast(
+      podt[, .(v = sum(q)), by = .(supp_idx, rate_type)], 
+      supp_idx ~ rate_type, 
+      value.var = "v", 
+      fill = 0L
+    ) -> voldt
+  # Get supplier indices
+  K <- voldt$supp_idx
+  # Check for missing columns
+  strategic_volumes <- ifelse(is.null(voldt$strategic_rate), 0L, voldt$strategic_rate)
+  spot_volumes      <- ifelse(is.null(voldt$spot_rate), 0L, voldt$spot_rate)
+  # Update volume commitment
+  env$volume_commitment[K] <- env$volume_commitment[K] - strategic_volumes
+  # Update volume allocation
+  env$volume[(K - 1L) * env$tau + floor(tdx)] <- strategic_volumes + spot_volumes
+  # Update cost metric
+  env$cost[floor(tdx)] <- env$cost[floor(tdx)] + 
+    podt[, .(cost = sum(q * rate))]$cost + extra_cost * (data.table::uniqueN(podt$supp_idx) - 1L)
   ## Store the request in the order table
   env$order_table[[po_hash]] <- list(
     "poid"      = po_key,
@@ -400,6 +403,7 @@ initiate <- function(env, tau = 365L, ...) {
     product_count <- numeric(n_products)
     demand_at     <- numeric(n_products * tau)
     inventory     <- numeric(n_products * tau)
+    cost          <- numeric(tau)
     # Generate the first request for each (i,j) pair
     request_key <- paste(sample(c(0:9, letters, LETTERS), 32, replace = TRUE), collapse = "")
     request_at  <- rexp(1L, 0.2)
