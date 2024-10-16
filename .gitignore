@@ -1,4 +1,5 @@
 DataStructures/
+demo/*xx*
 src/*.so
 src/*.o
 .Rhistory
