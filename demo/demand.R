@@ -246,10 +246,65 @@ run <- function(...) {
   N
 }
 # plot(seq(sim$tau), cumsum(N), type = "s")
-N  <- replicate(1000L, run())
+N  <- replicate(10000L, run())
 Nz <- apply(N, 2L, cumsum)
 N.avg <- apply(Nz, 1L, mean) + apply(Nz, 1L, sd) %*% t(c(-1.0, 0.0, 1.0) * qnorm(0.975))
 
+## Fancy plot
+df <- data.frame(
+  t = rep(seq(sim$tau), 1000L), 
+  N = c(Nz[,sample(10000L, 1000L, replace = FALSE)]), 
+  experiment = factor(rep(seq(1000L), each = sim$tau))
+)
+df.avg <- data.frame(t = seq(sim$tau), N.avg = N.avg[,2L])
+
+main_plot <- ggplot() +
+  geom_step(
+    data = df, 
+    aes(x = t, y = N, group = experiment, color = "Sample Path"), 
+    linetype = "solid", alpha = 0.1) +
+  geom_step(
+    data = df.avg, 
+    aes(x = t, y = N.avg, color = "Average Path"), 
+    linetype = "dashed", size = 1.1) +
+  labs(title = "", x = "t (Time)", y = "N(t)") +
+  scale_color_manual(values = c("Sample Path" = "steelblue", "Average Path" = "darkblue")) +
+  guides(color = guide_legend(override.aes = list(alpha = 1))) +
+  theme_minimal() +
+  theme(
+    legend.position = c(0.1, 0.95),
+    legend.title = element_blank(),
+    legend.text  = element_text(size = 12L),
+    plot.title   = element_blank(), # element_text(size = 16L, face = "italic"),
+    axis.title.x = element_text(size = 14L, face = "bold"),
+    axis.title.y = element_text(size = 14L, face = "bold"),
+    axis.text.y  = element_text(angle = 0.0, hjust = 1),
+    axis.text.x  = element_text(angle = 0.0, hjust = 1),
+    axis.text    = element_text(size = 14L),
+    strip.text   = element_text(size = 14L),
+    plot.margin = unit(c(0.5, -0.2, 0.5, 0.5), "cm")
+  )
+
+complementary_plot <- ggplot(data.frame(N = Nz[365L,]), aes(x = N)) +
+  geom_histogram(aes(x = N, y = ..density..), binwidth = 1.0, fill = "steelblue", color = "white", alpha = 0.7) +
+  coord_flip() +
+  xlim(range(df$N)) +
+  labs(title = "", y = "Density", x = "") +
+  theme_minimal() +
+  theme(
+    plot.title   = element_blank(),
+    axis.title.y = element_blank(),
+    axis.text.y  = element_blank(),
+    axis.text.x  = element_text(angle = 0.0, hjust = 1),
+    axis.title.x = element_text(size = 14L, face = "bold"),
+    axis.text    = element_text(size = 14L),
+    strip.text   = element_text(size = 14L),
+    plot.margin = unit(c(0.5, 0.5, 0.5, -0.2), "cm")
+  )
+
+grid.arrange(main_plot, complementary_plot, ncol = 2L, widths = c(3L, 1L))
+
+# Standard plot
 matplot(
   Nz,
   type = "s",
